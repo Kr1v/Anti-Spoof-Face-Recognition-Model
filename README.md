@@ -23,7 +23,7 @@ This project implements a CDCN-based deep learning model for face anti-spoofing 
 
 ```text
 .
-├── preprocessing.py
+├── preprocessing_faces.py
 ├── trainer.py
 ├── dataset/
 │   ├── real/
