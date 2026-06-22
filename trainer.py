@@ -83,7 +83,7 @@ class Config:
     VAL_SPLIT    = 0.2       # 80/20 stratified split
     THRESHOLD    = 0.5       # depth-score cutoff: >= threshold -> LIVE
     PATIENCE     = 10        # early stopping patience in epochs
-    MODEL_SAVE   = Path("/content/drive/MyDrive/models/cdcn_best.pt")
+    MODEL_SAVE = Path("/kaggle/working/models/cdcn_best.pt")
     DEVICE       = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ─────────────────────── 5. ARGUMENT PARSING ─────────────────────────────────
@@ -443,7 +443,7 @@ def train(cfg: Config, real_dir: Path, fake_dir: Path) -> CDCN:
 
     # Step 7: save history CSV
     if history:
-        hist_path = hist_path = Path("/content/drive/MyDrive/models/training_history.csv")
+        hist_path = Path("/kaggle/working/models/training_history.csv")
         with open(hist_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=history[0].keys())
             writer.writeheader()
