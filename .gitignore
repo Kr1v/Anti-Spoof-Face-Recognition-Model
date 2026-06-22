@@ -1,0 +1,12 @@
+# Ignore everything
+*
+
+# Allow folders so Git can traverse them
+!*/
+
+# Keep only these files
+!trainer.py
+!preprocessing.py
+
+# Keep gitignore itself
+!.gitignore
