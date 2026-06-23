@@ -298,6 +298,7 @@ class CDCNLoss(nn.Module):
 def compute_metrics(labels: list, scores: list, threshold: float) -> dict:
     preds    = np.array([1 if s >= threshold else 0 for s in scores])
     labels_a = np.array(labels)
+    accuracy = float((preds == labels_a).mean())
     real_mask = labels_a == 1
     fake_mask = ~real_mask
     bpcer = float((preds[real_mask] == 0).mean()) if real_mask.any() else 0.0
@@ -388,13 +389,19 @@ def train(cfg: Config, real_dir: Path, fake_dir: Path) -> CDCN:
         # Train
         model.train()
         running_loss = 0.0
+        train_correct = 0
+        train_total = 0
         for imgs, depth_gt, labels in train_loader:
             imgs     = imgs.to(cfg.DEVICE)
             depth_gt = depth_gt.to(cfg.DEVICE)
             labels   = labels.to(cfg.DEVICE)
             optimizer.zero_grad()
             depth_pred = model(imgs)
-            loss       = criterion(depth_pred, depth_gt, labels)
+            scores = depth_pred.mean(dim=[1,2,3])
+            preds = (scores >= cfg.THRESHOLD).float()
+            train_correct += (preds == labels).sum().item()
+            train_total += labels.size(0)
+            loss = criterion(depth_pred, depth_gt, labels)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
@@ -402,7 +409,7 @@ def train(cfg: Config, real_dir: Path, fake_dir: Path) -> CDCN:
 
         scheduler.step()
         avg_loss = running_loss / len(train_loader)
-
+        train_acc = train_correct / train_total
         # Validation
         model.eval()
         all_scores: list = []
@@ -418,10 +425,14 @@ def train(cfg: Config, real_dir: Path, fake_dir: Path) -> CDCN:
         m = compute_metrics(all_labels, all_scores, cfg.THRESHOLD)
 
         logger.info(
-            f"Epoch {epoch:03d}/{cfg.EPOCHS} | Loss: {avg_loss:.4f} | "
-            f"APCER: {m['APCER']:.4f} | BPCER: {m['BPCER']:.4f} | "
-            f"ACER: {m['ACER']:.4f} | AUC: {m['AUC']:.4f}"
-        )
+            f"Epoch {epoch:03d}/{cfg.EPOCHS} | "
+            f"Loss: {avg_loss:.4f} | "
+            f"TrainAcc: {train_acc:.4f} | "
+            f"ValAcc: {m['Accuracy']:.4f} | "
+            f"APCER: {m['APCER']:.4f} | "
+            f"BPCER: {m['BPCER']:.4f} | "
+            f"ACER: {m['ACER']:.4f} | "
+            f"AUC: {m['AUC']:.4f}")
         epoch_bar.set_postfix(
             loss=f"{avg_loss:.4f}",
             ACER=f"{m['ACER']:.4f}",
