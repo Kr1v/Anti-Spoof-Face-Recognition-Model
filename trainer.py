@@ -75,7 +75,7 @@ logger = logging.getLogger(__name__)
 
 # ─────────────────────── 4. CONFIG ───────────────────────────────────────────
 class Config:
-    IMG_SIZE     = 256
+    IMG_SIZE     = 128
     BATCH_SIZE   = 8
     EPOCHS       = 60
     LR           = 1e-3
