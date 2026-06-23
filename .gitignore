@@ -7,6 +7,7 @@
 # Keep only these files
 !trainer.py
 !preprocessing_faces.py
+!face_clustering.py
 
 # Keep gitignore itself
 !.gitignore
