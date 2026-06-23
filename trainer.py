@@ -307,8 +307,7 @@ def compute_metrics(labels: list, scores: list, threshold: float) -> dict:
     try:
         auc = float(roc_auc_score(labels, scores))
     except ValueError:
-        auc = float("nan")
-    return {"APCER": apcer, "BPCER": bpcer, "ACER": acer, "AUC": auc}
+     return {"accuracy": accuracy, "APCER": apcer, "BPCER": bpcer, "ACER": acer, "AUC": auc}
 
 # ─────────────────────── 12. EARLY STOPPING ──────────────────────────────────
 class EarlyStopping:
