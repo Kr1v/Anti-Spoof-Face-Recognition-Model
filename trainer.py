@@ -427,7 +427,7 @@ def train(cfg: Config, real_dir: Path, fake_dir: Path) -> CDCN:
             f"Epoch {epoch:03d}/{cfg.EPOCHS} | "
             f"Loss: {avg_loss:.4f} | "
             f"TrainAcc: {train_acc:.4f} | "
-            f"ValAcc: {m['Accuracy']:.4f} | "
+            f"ValAcc: {m['accuracy']:.4f} | "
             f"APCER: {m['APCER']:.4f} | "
             f"BPCER: {m['BPCER']:.4f} | "
             f"ACER: {m['ACER']:.4f} | "
