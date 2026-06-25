@@ -1,8 +1,10 @@
 import os
 import argparse
+import csv
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
@@ -10,69 +12,89 @@ from sklearn.metrics import roc_auc_score, confusion_matrix
 import json
 
 # ─────────────────────────────────────────────
-# CDCN Model Definition (must match training)
+# CDCN Model Definition — must match cdcn_train.py EXACTLY
 # ─────────────────────────────────────────────
 
-class CDC(nn.Module):
-    """Central Difference Convolution"""
-    def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=1, theta=0.7):
+class CentralDifferenceConv2d(nn.Module):
+    def __init__(self, in_ch, out_ch, k=3, s=1, p=1, theta=0.7):
         super().__init__()
-        self.conv = nn.Conv2d(in_ch, out_ch, kernel_size, stride=stride, padding=padding)
         self.theta = theta
+        self.conv  = nn.Conv2d(in_ch, out_ch, k, s, p, bias=False)
 
     def forward(self, x):
-        out_normal = self.conv(x)
-        if abs(self.theta) < 1e-8:
-            return out_normal
-        kernel = self.conv.weight
-        kernel_diff = kernel.sum(2).sum(2)
-        kernel_diff = kernel_diff[:, :, None, None]
-        out_diff = nn.functional.conv2d(x, kernel_diff, stride=self.conv.stride, padding=0)
-        return out_normal - self.theta * out_diff
+        out_vanilla = self.conv(x)
+        if self.theta == 0:
+            return out_vanilla
+        kernel      = self.conv.weight
+        kernel_diff = kernel.sum(dim=[2, 3], keepdim=True)
+        stride      = self.conv.stride[0]
+        out_cd      = F.conv2d(x, kernel_diff, stride=stride, padding=0)
+        return out_vanilla - self.theta * out_cd
 
 
-class CDCNBlock(nn.Module):
-    def __init__(self, in_ch, out_ch, theta=0.7):
-        super().__init__()
-        self.cdc = CDC(in_ch, out_ch, theta=theta)
-        self.bn  = nn.BatchNorm2d(out_ch)
-        self.act = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        return self.act(self.bn(self.cdc(x)))
+class ConvBNPReLU(nn.Sequential):
+    def __init__(self, in_ch, out_ch, k=3, s=1, p=1, theta=0.7):
+        super().__init__(
+            CentralDifferenceConv2d(in_ch, out_ch, k, s, p, theta),
+            nn.BatchNorm2d(out_ch),
+            nn.PReLU(),
+        )
 
 
 class CDCN(nn.Module):
-    def __init__(self, theta=0.7):
+    def __init__(self, base_ch=64, theta=0.7, dropout=0.3):
         super().__init__()
-        self.layer1 = CDCNBlock(3,   64,  theta)
-        self.layer2 = CDCNBlock(64,  128, theta)
-        self.pool   = nn.MaxPool2d(2, 2)
-        self.layer3 = CDCNBlock(128, 256, theta)
-        self.layer4 = CDCNBlock(256, 128, theta)
-        self.gap    = nn.AdaptiveAvgPool2d(1)
-        self.fc     = nn.Linear(128, 1)
+
+        self.stem = nn.Sequential(
+            ConvBNPReLU(3,           base_ch,     k=3, s=1, p=1, theta=theta),
+            ConvBNPReLU(base_ch,     base_ch * 2, k=3, s=2, p=1, theta=theta),
+            ConvBNPReLU(base_ch * 2, base_ch * 2, k=3, s=1, p=1, theta=theta),
+        )
+        self.layer1 = nn.Sequential(
+            ConvBNPReLU(base_ch * 2, base_ch * 2, theta=theta),
+            ConvBNPReLU(base_ch * 2, base_ch * 2, theta=theta),
+            ConvBNPReLU(base_ch * 2, base_ch * 2, theta=theta),
+            nn.MaxPool2d(3, 2, 1),
+        )
+        self.layer2 = nn.Sequential(
+            ConvBNPReLU(base_ch * 2, base_ch * 4, theta=theta),
+            ConvBNPReLU(base_ch * 4, base_ch * 4, theta=theta),
+            ConvBNPReLU(base_ch * 4, base_ch * 4, theta=theta),
+            nn.MaxPool2d(3, 2, 1),
+        )
+        self.layer3 = nn.Sequential(
+            ConvBNPReLU(base_ch * 4, base_ch * 8, theta=theta),
+            ConvBNPReLU(base_ch * 8, base_ch * 8, theta=theta),
+            ConvBNPReLU(base_ch * 8, base_ch * 8, theta=theta),
+        )
+
+        self.conv_s1   = nn.Conv2d(base_ch * 2, 1, 1)
+        self.conv_s2   = nn.Conv2d(base_ch * 4, 1, 1)
+        self.conv_s3   = nn.Conv2d(base_ch * 8, 1, 1)
+        self.upsample2 = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
+
+        self.depth_head = nn.Sequential(
+            nn.Dropout2d(p=dropout),
+            nn.Conv2d(3, 1, 1),
+            nn.Sigmoid(),
+        )
 
     def forward(self, x):
-        x = self.pool(self.layer1(x))
-        x = self.pool(self.layer2(x))
-        x = self.pool(self.layer3(x))
-        x = self.layer4(x)
-        x = self.gap(x).flatten(1)
-        return self.fc(x)
+        s0 = self.stem(x)
+        s1 = self.layer1(s0)
+        s2 = self.layer2(s1)
+        s3 = self.layer3(s2)
+        m1 = self.conv_s1(s1)
+        m2 = self.upsample2(self.conv_s2(s2))
+        m3 = self.upsample2(self.conv_s3(s3))
+        return self.depth_head(torch.cat([m1, m2, m3], dim=1))
 
 
 # ─────────────────────────────────────────────
-# Dataset  (test split – no augmentation)
+# Dataset
 # ─────────────────────────────────────────────
 
 class TestDataset(Dataset):
-    """
-    Expects folder layout:
-        test/
-            real/   *.jpg / *.png
-            fake/   *.jpg / *.png
-    """
     EXTS = {'.jpg', '.jpeg', '.png', '.bmp'}
 
     def __init__(self, root: str, img_size: int = 128):
@@ -82,7 +104,7 @@ class TestDataset(Dataset):
             transforms.Normalize([0.485, 0.456, 0.406],
                                  [0.229, 0.224, 0.225]),
         ])
-        self.samples = []   # (path, label)  label: 1=real, 0=fake
+        self.samples = []   # (path, label, true_class_name)
 
         for label, cls in [(1, 'real'), (0, 'fake')]:
             cls_dir = os.path.join(root, cls)
@@ -90,7 +112,7 @@ class TestDataset(Dataset):
                 raise FileNotFoundError(f"Expected folder: {cls_dir}")
             for fname in sorted(os.listdir(cls_dir)):
                 if os.path.splitext(fname)[1].lower() in self.EXTS:
-                    self.samples.append((os.path.join(cls_dir, fname), label))
+                    self.samples.append((os.path.join(cls_dir, fname), label, cls))
 
         if len(self.samples) == 0:
             raise RuntimeError(f"No images found under {root}")
@@ -99,9 +121,9 @@ class TestDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        path, label = self.samples[idx]
+        path, label, cls = self.samples[idx]
         img = Image.open(path).convert('RGB')
-        return self.transform(img), torch.tensor(label, dtype=torch.float32)
+        return self.transform(img), torch.tensor(label, dtype=torch.float32), idx
 
 
 # ─────────────────────────────────────────────
@@ -114,14 +136,10 @@ def compute_iso_metrics(y_true, y_prob, threshold=0.5):
 
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
 
-    # APCER: attack samples classified as real  →  FP / (FP + TN)
     apcer = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-    # BPCER: real samples classified as attack  →  FN / (FN + TP)
     bpcer = fn / (fn + tp) if (fn + tp) > 0 else 0.0
-    # ACER
-    acer = (apcer + bpcer) / 2.0
-    # Standard accuracy
-    acc  = (tp + tn) / len(y_true) * 100
+    acer  = (apcer + bpcer) / 2.0
+    acc   = (tp + tn) / len(y_true) * 100
 
     try:
         auc = roc_auc_score(y_true, y_prob) * 100
@@ -142,10 +160,9 @@ def evaluate(args):
     print(f"\n[Device] {device}")
 
     # ── Load model ──
-    model = CDCN(theta=args.theta).to(device)
+    model = CDCN(base_ch=64, theta=args.theta, dropout=0.3).to(device)
 
-    ckpt = torch.load(args.model, map_location=device)
-    # Support raw state_dict or checkpoint dict
+    ckpt  = torch.load(args.model, map_location=device)
     state = ckpt.get('model_state_dict', ckpt) if isinstance(ckpt, dict) else ckpt
     model.load_state_dict(state)
     model.eval()
@@ -157,22 +174,25 @@ def evaluate(args):
                          shuffle=False, num_workers=args.workers,
                          pin_memory=(device.type == 'cuda'))
 
-    real_count = sum(1 for _, l in dataset.samples if l == 1)
+    real_count = sum(1 for _, l, _ in dataset.samples if l == 1)
     fake_count = len(dataset) - real_count
     print(f"[Data]   {len(dataset)} images  |  real={real_count}  fake={fake_count}")
     print(f"         Source: {args.test_dir}\n")
 
     # ── Inference ──
-    all_probs, all_labels = [], []
+    all_probs, all_labels, all_indices = [], [], []
+
     with torch.no_grad():
-        for imgs, labels in loader:
-            imgs = imgs.to(device)
-            logits = model(imgs).squeeze(1)
-            probs  = torch.sigmoid(logits).cpu().numpy()
+        for imgs, labels, indices in loader:
+            imgs       = imgs.to(device)
+            depth_pred = model(imgs)
+            # score = mean of depth map (same as training inference)
+            probs      = depth_pred.mean(dim=[1, 2, 3]).cpu().numpy()
             all_probs.extend(probs.tolist())
             all_labels.extend(labels.numpy().tolist())
+            all_indices.extend(indices.numpy().tolist())
 
-    # ── Metrics ──
+    # ── Aggregate metrics ──
     m = compute_iso_metrics(all_labels, all_probs, threshold=args.threshold)
 
     bar = "─" * 42
@@ -189,12 +209,37 @@ def evaluate(args):
     print(f"    FN={m['fn']}  TN={m['tn']}")
     print(bar)
 
+    # ── Per-image CSV ──
+    csv_path = args.save_results.replace('.json', '_per_image.csv') \
+               if args.save_results else '/kaggle/working/predictions.csv'
+
+    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            'filename', 'true_label', 'true_class',
+            'predicted_class', 'score', 'correct'
+        ])
+        for idx, prob in zip(all_indices, all_probs):
+            path, label, true_cls = dataset.samples[idx]
+            pred_cls   = 'real' if prob >= args.threshold else 'fake'
+            correct    = (pred_cls == true_cls)
+            writer.writerow([
+                os.path.basename(path),
+                int(label),
+                true_cls,
+                pred_cls,
+                f"{prob:.6f}",
+                correct,
+            ])
+
+    print(f"\n[Saved]  Per-image predictions → {csv_path}")
+
+    # ── Summary JSON ──
     if args.save_results:
-        out_path = args.save_results
-        with open(out_path, 'w') as f:
+        with open(args.save_results, 'w') as f:
             json.dump({**m, 'threshold': args.threshold,
                        'model': args.model, 'test_dir': args.test_dir}, f, indent=2)
-        print(f"\n[Saved]  Results → {out_path}")
+        print(f"[Saved]  Summary metrics     → {args.save_results}")
 
     return m
 
@@ -206,22 +251,17 @@ def evaluate(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CDCN Face Anti-Spoofing – Test Evaluation')
 
-    parser.add_argument('--model',       required=True,
-                        help='Path to .pt model file  (e.g. best_model.pt)')
-    parser.add_argument('--test_dir',    required=True,
-                        help='Root of test dataset  (must contain real/ and fake/ subdirs)')
-    parser.add_argument('--img_size',    type=int,   default=128,
-                        help='Image resize dimension (default: 128)')
-    parser.add_argument('--batch_size',  type=int,   default=32,
-                        help='Inference batch size (default: 32)')
-    parser.add_argument('--workers',     type=int,   default=2,
-                        help='DataLoader num_workers (default: 2)')
-    parser.add_argument('--theta',       type=float, default=0.7,
-                        help='CDC theta value – must match training (default: 0.7)')
-    parser.add_argument('--threshold',   type=float, default=0.5,
-                        help='Classification threshold (default: 0.5)')
-    parser.add_argument('--save_results', default=None,
-                        help='Optional path to save JSON results  (e.g. results.json)')
+    parser.add_argument('--model',        required=True,
+                        help='Path to .pt model file')
+    parser.add_argument('--test_dir',     required=True,
+                        help='Root of test dataset (must contain real/ and fake/ subdirs)')
+    parser.add_argument('--img_size',     type=int,   default=128)
+    parser.add_argument('--batch_size',   type=int,   default=32)
+    parser.add_argument('--workers',      type=int,   default=2)
+    parser.add_argument('--theta',        type=float, default=0.7)
+    parser.add_argument('--threshold',    type=float, default=0.5)
+    parser.add_argument('--save_results', default='/kaggle/working/results.json',
+                        help='Path to save JSON summary (CSV is saved alongside it)')
 
     args = parser.parse_args()
     evaluate(args)
