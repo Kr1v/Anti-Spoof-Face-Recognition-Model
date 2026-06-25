@@ -75,8 +75,8 @@ logger = logging.getLogger(__name__)
 
 # ─────────────────────── 4. CONFIG ───────────────────────────────────────────
 class Config:
-    IMG_SIZE     = 256
-    BATCH_SIZE   = 16
+    IMG_SIZE     = 128
+    BATCH_SIZE   = 8
     EPOCHS       = 60
     LR           = 1e-3
     WEIGHT_DECAY = 5e-4
@@ -307,7 +307,8 @@ def compute_metrics(labels: list, scores: list, threshold: float) -> dict:
     try:
         auc = float(roc_auc_score(labels, scores))
     except ValueError:
-     return {"accuracy": accuracy, "APCER": apcer, "BPCER": bpcer, "ACER": acer, "AUC": auc}
+        auc = float("nan")
+    return {"accuracy": accuracy, "APCER": apcer, "BPCER": bpcer, "ACER": acer, "AUC": auc}
 
 # ─────────────────────── 12. EARLY STOPPING ──────────────────────────────────
 class EarlyStopping:
@@ -427,7 +428,7 @@ def train(cfg: Config, real_dir: Path, fake_dir: Path) -> CDCN:
             f"Epoch {epoch:03d}/{cfg.EPOCHS} | "
             f"Loss: {avg_loss:.4f} | "
             f"TrainAcc: {train_acc:.4f} | "
-            f"ValAcc: {m['Accuracy']:.4f} | "
+            f"ValAcc: {m['accuracy']:.4f} | "
             f"APCER: {m['APCER']:.4f} | "
             f"BPCER: {m['BPCER']:.4f} | "
             f"ACER: {m['ACER']:.4f} | "
