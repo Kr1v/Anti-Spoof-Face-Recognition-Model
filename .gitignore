@@ -9,7 +9,7 @@
 !preprocessing_faces.py
 !face_clustering.py
 !testing.py
-!test_preprocessing_faces.py.
+!test_preprocessing_faces.py
 
 
 # Keep gitignore itself
