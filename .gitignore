@@ -10,6 +10,8 @@
 !face_clustering.py
 !testing.py
 !test_preprocessing_faces.py
+!models/
+!models/**
 
 
 # Keep gitignore itself
