@@ -398,22 +398,31 @@ class CDCNLoss(nn.Module):
 
     def forward(self, depth_pred, depth_gt, label):
         loss_depth = self.mse(depth_pred, depth_gt)
-        score  = depth_pred.mean(dim=[1, 2, 3]).float().clamp(1e-6, 1 - 1e-6)
-        y_soft = (label * (1 - self.smooth) + 0.5 * self.smooth).float()
-        p_t    = torch.where(label >= 0.5, score, 1 - score)
-        focal  = (1 - p_t) ** self.gamma
         
-        weight_tensor = torch.where(label >= 0.5, self.pw.expand_as(label), torch.ones_like(label)).float()
-        bce    = F.binary_cross_entropy(score, y_soft, weight=weight_tensor, reduction="none")
-        loss_cls = (focal * bce).mean()
+        # Disable autocast explicitly for binary_cross_entropy to avoid PyTorch autocast safety error
+        device_type = depth_pred.device.type
+        with torch.amp.autocast(device_type, enabled=False):
+            score  = depth_pred.mean(dim=[1, 2, 3]).float().clamp(1e-6, 1 - 1e-6)
+            y_soft = (label * (1 - self.smooth) + 0.5 * self.smooth).float()
+            p_t    = torch.where(label >= 0.5, score, 1 - score)
+            focal  = (1 - p_t) ** self.gamma
+            
+            weight_tensor = torch.where(label >= 0.5, self.pw.expand_as(label), torch.ones_like(label)).float()
+            bce    = F.binary_cross_entropy(score, y_soft, weight=weight_tensor, reduction="none")
+            loss_cls = (focal * bce).mean()
+            
         return loss_depth + self.lam * loss_cls
 
 
 def per_sample_loss(depth_pred, depth_gt, labels):
     bs     = depth_pred.size(0)
-    mse    = F.mse_loss(depth_pred.float(), depth_gt.float(), reduction="none").view(bs, -1).mean(dim=1)
-    scores = depth_pred.mean(dim=[1, 2, 3]).float().clamp(1e-6, 1 - 1e-6)
-    bce    = F.binary_cross_entropy(scores, labels.float(), reduction="none")
+    
+    device_type = depth_pred.device.type
+    with torch.amp.autocast(device_type, enabled=False):
+        mse    = F.mse_loss(depth_pred.float(), depth_gt.float(), reduction="none").view(bs, -1).mean(dim=1)
+        scores = depth_pred.mean(dim=[1, 2, 3]).float().clamp(1e-6, 1 - 1e-6)
+        bce    = F.binary_cross_entropy(scores, labels.float(), reduction="none")
+        
     return (mse + 0.5 * bce).detach().cpu().numpy()
 
 # ───────────────────────────── METRICS ───────────────────────────────────────
