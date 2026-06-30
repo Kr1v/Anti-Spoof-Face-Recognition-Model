@@ -10,8 +10,8 @@
 !face_clustering.py
 !testing.py
 !test_preprocessing_faces.py
-!models/
-!models/**
+!cdcn_train_v4.py
+
 
 
 # Keep gitignore itself
