@@ -45,27 +45,24 @@ class Config:
     IMG_SIZE      = 128
     BATCH_SIZE    = 16
     EPOCHS        = 100
-    LR            = 5e-4
-    WEIGHT_DECAY  = 1e-3
+    LR            = 2.5e-4          # Reduced from 5e-4 to prevent the early epoch dead-lock
+    WEIGHT_DECAY  = 2e-3            # Increased regularization to counteract validation overfitting
     VAL_SPLIT     = 0.15
     TEST_SPLIT    = 0.15
     THRESHOLD     = 0.5
     PATIENCE      = 20
     BOOST_EVERY   = 5
     EMA_DECAY     = 0.999
-    MIXUP_ALPHA   = 0.3
-    LABEL_SMOOTH  = 0.1
+    MIXUP_ALPHA   = 0.1             # Lowered from 0.3 to maintain edge precision for CDCN
+    LABEL_SMOOTH  = 0.05            # Slightly lowered to prevent over-smoothing of crisp targets
     FOCAL_GAMMA   = 2.0
-    DROPOUT       = 0.4
-    LR_T0         = 20
+    DROPOUT       = 0.5             # Increased from 0.4 to prevent folder identity memorization
+    LR_T0         = 25              # Extended cosine period for stabler feature extraction
     
-    # Auto-optimize asynchronous processing based on CPU availability (capped at 2 to prevent Kaggle RAM OOM)
-    NUM_WORKERS   = min(2, os.cpu_count() or 0)
+    NUM_WORKERS   = min(4, os.cpu_count() or 0)
     
-    # Kaggle output directory compliance or local fallback
-    IS_KAGGLE     = os.path.exists("/kaggle") or "KAGGLE_KERNEL_RUN_TYPE" in os.environ
-    MODEL_DIR     = Path("/kaggle/working/models") if IS_KAGGLE else Path("./models")
-    TRAIN_DIR     = Path("/kaggle/working/training") if IS_KAGGLE else Path("./training")
+    MODEL_DIR     = Path("/kaggle/working/models")
+    TRAIN_DIR     = Path("/kaggle/working/training")
     MODEL_SAVE    = MODEL_DIR / "cdcn_best_v3.pt"
     CKPT_LAST     = MODEL_DIR / "checkpoint_last.pt"
     DEVICE        = torch.device("cuda" if torch.cuda.is_available() else "cpu")
