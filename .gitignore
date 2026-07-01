@@ -15,8 +15,8 @@ venv
 !packages.txt
 
 # Allow the model checkpoint folder and its contents
-!models/
-!models/**
+!/models/
+!/models/**
 
 # Keep gitignore itself
 !.gitignore
