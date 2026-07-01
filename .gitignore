@@ -18,5 +18,6 @@ venv
 !/models/
 !/models/**
 
+
 # Keep gitignore itself
 !.gitignore
