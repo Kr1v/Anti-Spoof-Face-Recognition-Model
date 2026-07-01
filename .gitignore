@@ -1,18 +1,22 @@
 # Ignore everything
 *
-
+venv
 # Allow folders so Git can traverse them
 !*/
 
 # Keep only these files
-!trainer.py
 !preprocessing_faces.py
 !face_clustering.py
 !testing.py
 !cdcn_train_v4.py
 !densenet_train.py
+!app.py
+!requirements.txt
+!packages.txt
 
-
+# Allow the model checkpoint folder and its contents
+!models/
+!models/**
 
 # Keep gitignore itself
 !.gitignore
