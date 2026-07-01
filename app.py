@@ -35,7 +35,7 @@ import mediapipe as mp
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode, RTCConfiguration
 
 # ───────────────────────────── CONFIG ────────────────────────────────────────
-MODEL_PATH          = Path(r"C:\Users\ashutosh mehta\Vishu\cdcn\models\densenet121_best_v4.pt")   # your local checkpoint
+MODEL_PATH          = Path(r"models/densenet121_best_v4.pt")   
 IMG_SIZE            = 224
 THRESHOLD            = 0.5          # sigmoid score >= THRESHOLD -> predicted "real"
 BLINK_EAR_THRESHOLD  = 0.21         # eye-aspect-ratio below this = eyes closed
