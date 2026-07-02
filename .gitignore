@@ -13,6 +13,7 @@ venv
 !app.py
 !requirements.txt
 !DockerFile
+!densenet_train_v2.py
 
 # Allow the model checkpoint folder and its contents
 !/models/
